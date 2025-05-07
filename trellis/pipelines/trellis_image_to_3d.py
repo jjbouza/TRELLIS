@@ -305,6 +305,10 @@ class TrellisImageTo3DPipeline(Pipeline):
             slat_sampler_params (dict): Additional parameters for the structured latent sampler.
             preprocess_image (bool): Whether to preprocess the image.
         """
+        
+        # Reload encoding models
+        self._reload_encoding_models()
+
         if preprocess_image:
             image = self.preprocess_image(image)
         cond = self.get_cond([image])
@@ -317,9 +321,6 @@ class TrellisImageTo3DPipeline(Pipeline):
         
         # Decode the structured latent
         result = self.decode_slat(slat, formats)
-        
-        # Reload encoding models
-        self._reload_encoding_models()
         
         return result
 
