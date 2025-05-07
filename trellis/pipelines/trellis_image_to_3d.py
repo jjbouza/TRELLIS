@@ -254,6 +254,36 @@ class TrellisImageTo3DPipeline(Pipeline):
         
         return slat
 
+    def _unload_encoding_models(self):
+        """
+        Move encoding/sampling models to CPU to free GPU memory.
+        """
+        encoding_models = [
+            'image_cond_model',
+            'sparse_structure_flow_model',
+            'sparse_structure_decoder',
+            'slat_flow_model'
+        ]
+        self.model_devices = {}
+        
+        for model_name in encoding_models:
+            if model_name in self.models:
+                self.model_devices[model_name] = next(self.models[model_name].parameters()).device
+                self.models[model_name] = self.models[model_name].cpu()
+    
+    def _reload_encoding_models(self):
+        """
+        Move encoding/sampling models back to their original devices.
+        """
+        if not hasattr(self, 'model_devices'):
+            return
+            
+        for model_name, device in self.model_devices.items():
+            if model_name in self.models:
+                self.models[model_name] = self.models[model_name].to(device)
+        
+        self.model_devices = {}
+
     @torch.no_grad()
     def run(
         self,
@@ -281,7 +311,17 @@ class TrellisImageTo3DPipeline(Pipeline):
         torch.manual_seed(seed)
         coords = self.sample_sparse_structure(cond, num_samples, sparse_structure_sampler_params)
         slat = self.sample_slat(cond, coords, slat_sampler_params)
-        return self.decode_slat(slat, formats)
+        
+        # Unload encoding models before decoding to free GPU memory
+        self._unload_encoding_models()
+        
+        # Decode the structured latent
+        result = self.decode_slat(slat, formats)
+        
+        # Reload encoding models
+        self._reload_encoding_models()
+        
+        return result
 
     @contextmanager
     def inject_sampler_multi_image(
@@ -373,4 +413,14 @@ class TrellisImageTo3DPipeline(Pipeline):
         slat_steps = {**self.slat_sampler_params, **slat_sampler_params}.get('steps')
         with self.inject_sampler_multi_image('slat_sampler', len(images), slat_steps, mode=mode):
             slat = self.sample_slat(cond, coords, slat_sampler_params)
-        return self.decode_slat(slat, formats)
+            
+        # Unload encoding models before decoding to free GPU memory
+        self._unload_encoding_models()
+        
+        # Decode the structured latent
+        result = self.decode_slat(slat, formats)
+        
+        # Reload encoding models
+        self._reload_encoding_models()
+        
+        return result
